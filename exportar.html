@@ -6,6 +6,8 @@
 <title>Exportar · Seguros</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
 :root{--txt:#1E293B;--mut:#8A8F9E;--lin:#EDEFF4;--linh:#DDE2EC;--azul:#003660;--azul2:#004E81;--bg:#F4F6F9;--sel:#EFF6FF}
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Inter','Segoe UI',system-ui,sans-serif}
@@ -18,8 +20,8 @@ body{background:var(--bg);color:var(--txt);padding:28px 16px}
 .sec{padding:16px 0;border-bottom:1px solid var(--lin)}
 .lb{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--mut);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12.5px}
-select,input[type=text]{font:inherit;font-size:12.5px;border:1px solid var(--linh);border-radius:8px;padding:7px 10px;background:#fff;color:var(--txt);outline:none}
-select:focus,input[type=text]:focus{border-color:var(--azul)}
+select,input[type=text],input[type=date]{font:inherit;font-size:12.5px;border:1px solid var(--linh);border-radius:8px;padding:7px 10px;background:#fff;color:var(--txt);outline:none}
+input:focus{border-color:var(--azul)}
 .chip{font:inherit;font-size:11px;font-weight:600;color:var(--mut);border:1px solid var(--linh);background:#fff;border-radius:99px;padding:5px 11px;cursor:pointer}
 .chip:hover{color:var(--azul);border-color:var(--azul)}
 .chip.on{color:#fff;background:var(--azul);border-color:var(--azul)}
@@ -51,6 +53,9 @@ input[type=checkbox]{accent-color:var(--azul);width:14px;height:14px;cursor:poin
 .btn.s{background:#fff;color:var(--azul)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 .err{max-width:900px;margin:60px auto;text-align:center;color:var(--mut);font-size:13px;line-height:1.6}
+.ld{display:flex;align-items:center;justify-content:center;gap:12px;padding:40px;font-size:13px;color:var(--mut)}
+.sp{width:18px;height:18px;border:2px solid var(--linh);border-top-color:var(--azul);border-radius:50%;animation:g 0.8s linear infinite}
+@keyframes g{to{transform:rotate(360deg)}}
 .ft{font-size:10.5px;color:var(--mut);padding-top:12px}
 </style>
 </head>
@@ -58,239 +63,282 @@ input[type=checkbox]{accent-color:var(--azul);width:14px;height:14px;cursor:poin
 <div id="app"></div>
 <script>
 (function(){
+/* ── fonte de dados (somente leitura) ── */
+var FONTE='https://datalake-gl.thiago-marinho.workers.dev/sisand/Seguro.csv.gz';
+
 var app=document.getElementById('app');
 function erro(m){ app.innerHTML='<div class="err">'+m+'</div>'; }
 function $(id){ return document.getElementById(id); }
 
-/* ── leitura do link ── */
+/* ── filtros vindos do Power BI ── */
 var raw=location.hash.slice(1);
 try{ raw=decodeURIComponent(raw); }catch(e){}
 var P=raw.split('~');
-if(P[0]!=='seg2'||P.length<14){ erro('Abra esta página pelo botão <b>Exportar</b> do painel de Seguros no Power BI.'); return; }
+if(P[0]!=='seg3'||P.length<8){ erro('Abra esta página pelo botão <b>Exportar</b> do painel de Seguros no Power BI.'); return; }
 
-var Y=+P[1].slice(0,4), M0=+P[1].slice(4,6)-1, N=+P[2], TXN=+P[3]||0, TXR=+P[4]||0;
-var NOM=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-var MES=[];
-for(var i=0;i<N;i++){
-  var d0=new Date(Y,M0+i,1);
-  MES.push({ k:d0.getFullYear()+'-'+('0'+(d0.getMonth()+1)).slice(-2), l:NOM[d0.getMonth()]+'/'+String(d0.getFullYear()).slice(2), y:d0.getFullYear() });
-}
-var UN=(P[5]?P[5].split(','):[]).map(function(s){ var a=s.split('.'); return {uf:a[0]||'',ab:a[1]||'',mz:a[2]||''}; });
+var UN=(P[1]?P[1].split(','):[]).map(function(s){ var a=s.split('.'); return {uf:a[0]||'',ab:a[1]||'',mz:a[2]||''}; });
 var UIX={}; UN.forEach(function(u,i){ UIX[u.ab]=i; });
-var MOD=(P[6]||'').split('!'), ADM=(P[7]||'').split('!'), VEN=(P[8]||'').split('!');
+function ymd(s){ return (s&&s.length>=8)?new Date(+s.slice(0,4),+s.slice(4,6)-1,+s.slice(6,8)):null; }
+var DINI=ymd(P[2]), DFIM=ymd(P[3]);
+var pre=(P[4]&&P[4]!=='*')?P[4].split('.'):null;
+var TXN=+P[5]||0, TXR=+P[6]||0;
+var G=P[7]||'';
+var GER=G.length>=12?G.slice(6,8)+'/'+G.slice(4,6)+'/'+G.slice(0,4)+' '+G.slice(8,10)+':'+G.slice(10,12):'';
 var TIPO={N:'Nova Proposta',R:'Renovação',I:'Informativa'};
 
+/* ── utilitarios ── */
+function nf(v){ return Math.round(v).toLocaleString('pt-BR'); }
+function rf(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function df(d){ return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear(); }
+function iso(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function deIso(s){ var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||''); return m?new Date(+m[1],+m[2]-1,+m[3]):null; }
+function semDec(s){ return String(s==null?'':s).split('.')[0].trim(); }
+function num(s){ s=String(s==null?'':s).trim(); if(s.indexOf(',')>=0&&s.indexOf('.')<0) s=s.replace(',','.'); var v=parseFloat(s); return isNaN(v)?0:v; }
 function cpfFmt(s){
   s=(s||'').replace(/\D/g,''); if(!s) return '';
   if(s.length<=11){ s=('00000000000'+s).slice(-11); return s.slice(0,3)+'.'+s.slice(3,6)+'.'+s.slice(6,9)+'-'+s.slice(9); }
   s=('00000000000000'+s).slice(-14); return s.slice(0,2)+'.'+s.slice(2,5)+'.'+s.slice(5,8)+'/'+s.slice(8,12)+'-'+s.slice(12);
 }
-
-var L=(P[9]?P[9].split('|'):[]).map(function(s){
-  var a=s.split(';'), dt=new Date(Y,M0,1+(+a[0]||0));
-  var ui=UIX[a[1]], u=UN[ui]||{uf:'',ab:a[1]||'',mz:''};
-  var t=a[2]||'I', v=+a[9]||0;
-  return { dt:dt, mi:(dt.getFullYear()-Y)*12+dt.getMonth()-M0, ui:ui, uf:u.uf, ab:u.ab, mz:u.mz, t:t,
-           np:a[3]||'', cli:a[4]||'', cpf:cpfFmt(a[5]), mod:MOD[+a[6]]||'', adm:ADM[+a[7]]||'', ven:VEN[+a[8]]||'',
-           v:v, c:(t==='N'?v*TXN:(t==='R'?v*TXR:0)) };
-});
-if(!L.length){ erro('Nenhuma proposta disponível para exportar no seu acesso.'); return; }
-var TEM_CPF=L.some(function(r){ return !!r.cpf; });
-
-var INI=Math.min(+P[10]||0,+P[11]||0), FIM=Math.max(+P[10]||0,+P[11]||0);
-var pre=(P[12]&&P[12]!=='*')?P[12].split('.'):null;
-var SEL={}; UN.forEach(function(u,i){ SEL[i]=pre?pre.indexOf(u.ab)>=0:true; });
-var G=P[13]||'';
-var GER=G.length>=12?G.slice(6,8)+'/'+G.slice(4,6)+'/'+G.slice(0,4)+' '+G.slice(8,10)+':'+G.slice(10,12):'';
-var UFS=[]; UN.forEach(function(u){ if(UFS.indexOf(u.uf)<0) UFS.push(u.uf); });
-var ADMS=[]; L.forEach(function(r){ if(ADMS.indexOf(r.adm)<0) ADMS.push(r.adm); }); ADMS.sort();
-var ASEL={}; ADMS.forEach(function(a){ ASEL[a]=true; });
-var TP={N:true,R:true,I:true};
-var BUSCA='';
-
-function nf(v){ return Math.round(v).toLocaleString('pt-BR'); }
-function rf(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function df(d){ return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear(); }
-
-/* ── tela ── */
-var ops=MES.map(function(m,i){ return '<option value="'+i+'">'+m.l+'</option>'; }).join('');
-app.innerHTML='<div class="card">'
- +'<div class="hd"><div class="t1">Exportar</div><div class="t2">Seguros · detalhe por proposta</div>'
- +'<div class="t3">Dados do painel'+(GER?' · gerado em '+GER:'')+' · últimos '+N+' meses disponíveis</div></div>'
- +'<div class="sec"><div class="lb">Período</div><div class="row">De <select id="ini">'+ops+'</select> até <select id="fim">'+ops+'</select>'
- +'<span style="flex:1"></span>'
- +'<button class="chip" data-at="m">Mês atual</button><button class="chip" data-at="3">Últimos 3 meses</button>'
- +'<button class="chip" data-at="a">Ano atual</button><button class="chip" data-at="t">Tudo</button></div></div>'
- +'<div class="sec"><div class="lb"><span>Unidades</span><span><button class="lk" id="todas">Marcar todas</button> · <button class="lk" id="nenhuma">Limpar</button></span></div>'
- +'<input type="text" id="busca" placeholder="Buscar unidade" style="width:220px"><div class="ufs" id="ufs"></div></div>'
- +'<div class="sec"><div class="lb">Tipo de proposta</div><div class="opt">'
- +'<label><input type="checkbox" data-tp="N" checked> Nova proposta</label>'
- +'<label><input type="checkbox" data-tp="R" checked> Renovação</label>'
- +'<label><input type="checkbox" data-tp="I" checked> Informativa</label></div></div>'
- +'<div class="sec"><div class="lb"><span>Seguradora</span><span><button class="lk" id="atodas">Todas</button> · <button class="lk" id="anenhuma">Nenhuma</button></span></div><div class="chips" id="adms"></div></div>'
- +'<div class="sec" style="border-bottom:none"><div class="lb">Resumo da exportação</div><div class="res" id="res"></div>'
- +'<div class="pv" id="pv"></div><div class="pvn" id="pvn"></div></div>'
- +'<div class="act"><button class="btn s" id="csv">Baixar CSV</button><button class="btn p" id="xlsx">Baixar Excel</button></div>'
- +'<div class="ft">Os dados vêm do Power BI pelo link e o arquivo é gerado no seu navegador; nada é enviado para servidor.</div>'
- +'</div>';
-
-$('ini').value=INI; $('fim').value=FIM;
-function per(){ var a=+$('ini').value, z=+$('fim').value; return a<=z?[a,z]:[z,a]; }
-
-/* ── unidades ── */
-function visiveis(uf){
-  var b=BUSCA.toUpperCase(), r=[];
-  UN.forEach(function(u,i){ if(u.uf===uf && (!b||u.ab.toUpperCase().indexOf(b)>=0||u.mz.toUpperCase().indexOf(b)>=0)) r.push(i); });
-  return r;
-}
-function ufsRender(){
-  var h='';
-  UFS.forEach(function(uf){
-    var idx=visiveis(uf); if(!idx.length) return;
-    var ns=idx.filter(function(i){ return SEL[i]; }).length;
-    h+='<div class="uf"><label class="ufh"><input type="checkbox" data-uf="'+uf+'"'+(ns===idx.length?' checked':'')+'> '+uf+'<span class="n">'+ns+'/'+idx.length+'</span></label>';
-    idx.forEach(function(i){
-      var u=UN[i];
-      h+='<label class="un"><input type="checkbox" data-i="'+i+'"'+(SEL[i]?' checked':'')+'> '+u.ab+(u.mz&&u.mz!==u.ab?'<small>'+u.mz+'</small>':'')+'</label>';
-    });
-    h+='</div>';
-  });
-  $('ufs').innerHTML=h||'<div class="t3">Nenhuma unidade encontrada</div>';
-  [].forEach.call(document.querySelectorAll('[data-uf]'),function(c){
-    var idx=visiveis(c.getAttribute('data-uf')), ns=idx.filter(function(i){ return SEL[i]; }).length;
-    c.indeterminate=ns>0&&ns<idx.length;
-  });
-}
-
-/* ── seguradoras ── */
-function admRender(){
-  $('adms').innerHTML=ADMS.map(function(a,i){
-    return '<button class="chip'+(ASEL[a]?' on':'')+'" data-a="'+i+'">'+(a||'(sem seguradora)')+'</button>';
-  }).join('');
-}
-
-/* ── linhas filtradas ── */
-function filtradas(){
-  var p=per();
-  return L.filter(function(r){
-    return r.mi>=p[0] && r.mi<=p[1] && r.ui!=null && SEL[r.ui] && TP[r.t] && ASEL[r.adm];
-  });
-}
-
-/* ── resumo + previa ── */
-function resumo(){
-  var R=filtradas(), pr=0, co=0, us={};
-  R.forEach(function(r){ pr+=r.v; co+=r.c; us[r.ab]=1; });
-  $('res').innerHTML=
-    '<div class="kp"><span>Propostas</span><b>'+nf(R.length)+'</b></div>'
-   +'<div class="kp"><span>Unidades</span><b>'+Object.keys(us).length+'</b></div>'
-   +'<div class="kp"><span>Prêmio</span><b>'+rf(pr)+'</b></div>'
-   +'<div class="kp"><span>Comissão prevista</span><b>'+rf(co)+'</b></div>';
-  var h='<table><thead><tr><th>Data</th><th>Unidade</th><th>Nº proposta</th><th>Tipo</th><th>Cliente</th><th>Modelo</th><th>Seguradora</th><th>Prêmio</th></tr></thead><tbody>';
-  R.slice(0,8).forEach(function(r){
-    h+='<tr><td>'+df(r.dt)+'</td><td>'+r.ab+'</td><td>'+r.np+'</td><td>'+TIPO[r.t]+'</td><td>'+r.cli+'</td><td>'+r.mod+'</td><td>'+r.adm+'</td><td class="n">'+rf(r.v)+'</td></tr>';
-  });
-  h+='</tbody></table>';
-  $('pv').innerHTML=R.length?h:'<div class="t3" style="padding:12px">Nenhuma proposta com essa seleção.</div>';
-  $('pvn').textContent=R.length>8?'Prévia das 8 primeiras de '+nf(R.length)+' propostas.':'';
-  $('xlsx').disabled=!R.length; $('csv').disabled=!R.length;
-}
-
-/* ── tabela de exportacao ── */
-function tabela(){
-  var R=filtradas();
-  var head=['Data','UF','Unidade','Matriz','Nº proposta','Tipo','Cliente'];
-  if(TEM_CPF) head.push('CPF/CNPJ');
-  head.push('Modelo','Seguradora','Vendedor','Prêmio','Comissão prevista');
-  var aoa=[head];
-  R.forEach(function(r){
-    var l=[r.dt,r.uf,r.ab,r.mz,r.np,TIPO[r.t],r.cli];
-    if(TEM_CPF) l.push(r.cpf);
-    l.push(r.mod,r.adm,r.ven,r.v,Math.round(r.c*100)/100);
-    aoa.push(l);
-  });
-  return {aoa:aoa,n:R.length};
-}
-function nomeArq(ext){ var p=per(); return 'seguros_detalhe_'+MES[p[0]].k+'_a_'+MES[p[1]].k+'.'+ext; }
-
-function baixarXlsx(){
-  var T=tabela(); if(!T.n) return;
-  var ws=XLSX.utils.aoa_to_sheet(T.aoa,{cellDates:true});
-  var nc=T.aoa[0].length, cP=nc-2, cC=nc-1;
-  for(var r=1;r<T.aoa.length;r++){
-    var a=XLSX.utils.encode_cell({r:r,c:0}); if(ws[a]) ws[a].z='dd/mm/yyyy';
-    [cP,cC].forEach(function(c){ var ref=XLSX.utils.encode_cell({r:r,c:c}); if(ws[ref]) ws[ref].z='#,##0.00'; });
+function detectaFmt(vals){
+  var dm=0, md=0;
+  for(var i=0;i<vals.length&&i<5000;i++){
+    var m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(vals[i]||'');
+    if(!m) continue; if(+m[1]>12) dm++; if(+m[2]>12) md++;
   }
-  ws['!cols']=T.aoa[0].map(function(h){
-    var w={'Data':11,'UF':5,'Unidade':9,'Matriz':9,'Nº proposta':13,'Tipo':15,'Cliente':34,'CPF/CNPJ':19,'Modelo':26,'Seguradora':30,'Vendedor':26,'Prêmio':12,'Comissão prevista':17}[h];
-    return {wch:w||12};
-  });
-  ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:T.aoa.length-1,c:nc-1}})};
-  var p=per();
-  var info=XLSX.utils.aoa_to_sheet([
-    ['Exportação','Seguros · detalhe por proposta'],
-    ['Período',MES[p[0]].l+' a '+MES[p[1]].l],
-    ['Propostas',T.n],
-    ['Gerado em',GER],
-    ['Comissão prevista','Nova '+(TXN*100)+'% · Renovação '+(TXR*100)+'% do prêmio']
-  ]);
-  info['!cols']=[{wch:18},{wch:48}];
-  var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,'Seguros');
-  XLSX.utils.book_append_sheet(wb,info,'Info');
-  XLSX.writeFile(wb,nomeArq('xlsx'));
+  return md>dm?'md':'dm';
+}
+function lerData(s,fmt){
+  s=String(s||'').trim();
+  var m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+  m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s);
+  if(m) return fmt==='md'?new Date(+m[3],+m[1]-1,+m[2]):new Date(+m[3],+m[2]-1,+m[1]);
+  var d=new Date(s); return isNaN(d.getTime())?null:new Date(d.getFullYear(),d.getMonth(),d.getDate());
 }
 
-function baixarCsv(){
-  var T=tabela(); if(!T.n) return;
-  var nc=T.aoa[0].length;
-  var txt=T.aoa.map(function(l,ri){
-    return l.map(function(v,ci){
-      if(ri>0 && ci===0) return df(v);
-      if(ri>0 && ci>=nc-2) return (+v).toFixed(2).replace('.',',');
-      v=String(v==null?'':v);
-      return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
-    }).join(';');
-  }).join('\r\n');
-  var blob=new Blob(['\ufeff'+txt],{type:'text/csv;charset=utf-8'});
-  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nomeArq('csv');
-  document.body.appendChild(a); a.click();
-  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+/* ── carga ── */
+app.innerHTML='<div class="card"><div class="ld"><div class="sp"></div>Carregando propostas da base…</div></div>';
+
+fetch(FONTE,{cache:'no-store'})
+  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer(); })
+  .then(function(buf){
+    var b=new Uint8Array(buf);
+    var bytes=(b[0]===0x1f&&b[1]===0x8b)?pako.ungzip(b):b;
+    var txt=new TextDecoder('utf-8').decode(bytes);
+    var res=Papa.parse(txt,{header:true,skipEmptyLines:true,transformHeader:function(h){ return h.replace(/^\ufeff/,'').trim(); }});
+    montar(res.data);
+  })
+  .catch(function(e){
+    erro('Não consegui ler a base de seguros.<br><small>'+FONTE+'<br>'+(e&&e.message?e.message:e)+
+         '</small><br><br>Se no console (F12) aparecer erro de <b>CORS</b>, o endereço do Cloudflare não libera leitura por outros sites.');
+  });
+
+function montar(rows){
+  var fmt=detectaFmt(rows.map(function(r){ return r['Data']; }));
+  var L=[];
+  rows.forEach(function(r){
+    if(String(r['Situação']||'').trim()!=='Confirmado') return;
+    var ab=String(r['Empresa']||'').trim(), ui=UIX[ab];
+    if(ui==null) return;
+    var dt=lerData(r['Data'],fmt); if(!dt) return;
+    var tp=String(r['Tipo Proposta']||'').trim();
+    var t=tp.indexOf('Nova')===0?'N':(tp.indexOf('Reno')===0?'R':'I');
+    var v=num(r['Valor Seguro']);
+    L.push({ dt:dt, ui:ui, uf:UN[ui].uf, ab:ab, mz:UN[ui].mz, t:t,
+             np:semDec(r['Nº Proposta']), cli:String(r['Cliente']||'').trim(), cpf:cpfFmt(semDec(r['CPF/CNPJ Cliente'])),
+             mod:String(r['Modelo']||'').trim(), adm:String(r['Administradora']||'').trim(), ven:String(r['Vendedor']||'').trim(),
+             v:v, c:(t==='N'?v*TXN:(t==='R'?v*TXR:0)) });
+  });
+  if(!L.length){ erro('Nenhuma proposta encontrada para as unidades do seu acesso.'); return; }
+  L.sort(function(a,b){ return b.dt-a.dt; });
+  hub(L);
 }
 
-/* ── eventos ── */
-$('ufs').addEventListener('change',function(e){
-  var t=e.target;
-  if(t.hasAttribute('data-i')) SEL[+t.getAttribute('data-i')]=t.checked;
-  if(t.hasAttribute('data-uf')) visiveis(t.getAttribute('data-uf')).forEach(function(i){ SEL[i]=t.checked; });
-  ufsRender(); resumo();
-});
-$('busca').addEventListener('input',function(){ BUSCA=this.value.trim(); ufsRender(); });
-$('todas').addEventListener('click',function(){ UN.forEach(function(u,i){ SEL[i]=true; }); ufsRender(); resumo(); });
-$('nenhuma').addEventListener('click',function(){ UN.forEach(function(u,i){ SEL[i]=false; }); ufsRender(); resumo(); });
-$('adms').addEventListener('click',function(e){
-  var b=e.target.closest('[data-a]'); if(!b) return;
-  var a=ADMS[+b.getAttribute('data-a')]; ASEL[a]=!ASEL[a]; admRender(); resumo();
-});
-$('atodas').addEventListener('click',function(){ ADMS.forEach(function(a){ ASEL[a]=true; }); admRender(); resumo(); });
-$('anenhuma').addEventListener('click',function(){ ADMS.forEach(function(a){ ASEL[a]=false; }); admRender(); resumo(); });
-[].forEach.call(document.querySelectorAll('[data-tp]'),function(c){
-  c.addEventListener('change',function(){ TP[c.getAttribute('data-tp')]=c.checked; resumo(); });
-});
-['ini','fim'].forEach(function(id){ $(id).addEventListener('change',resumo); });
-[].forEach.call(document.querySelectorAll('[data-at]'),function(b){
-  b.addEventListener('click',function(){
-    var at=b.getAttribute('data-at'), z=N-1, a=z;
-    if(at==='3') a=z-2;
-    if(at==='t') a=0;
-    if(at==='a'){ a=z; while(a>0 && MES[a-1].y===MES[z].y) a--; }
-    $('ini').value=Math.max(0,a); $('fim').value=z; resumo();
-  });
-});
-$('xlsx').addEventListener('click',baixarXlsx);
-$('csv').addEventListener('click',baixarCsv);
+function hub(L){
+  var MIN=L[L.length-1].dt, MAX=L[0].dt;
+  var ini=DINI&&DINI>=MIN&&DINI<=MAX?DINI:new Date(MAX.getFullYear(),MAX.getMonth(),1);
+  var fim=DFIM&&DFIM>=MIN&&DFIM<=MAX?DFIM:MAX;
+  if(ini<MIN) ini=MIN;
 
-ufsRender(); admRender(); resumo();
+  var PRES={}; L.forEach(function(r){ PRES[r.ui]=1; });
+  var UNS=UN.map(function(u,i){ return i; }).filter(function(i){ return PRES[i]; });
+  var SEL={}; UNS.forEach(function(i){ SEL[i]=pre?pre.indexOf(UN[i].ab)>=0:true; });
+  var UFS=[]; UNS.forEach(function(i){ if(UFS.indexOf(UN[i].uf)<0) UFS.push(UN[i].uf); });
+  var ADMS=[]; L.forEach(function(r){ if(ADMS.indexOf(r.adm)<0) ADMS.push(r.adm); }); ADMS.sort();
+  var ASEL={}; ADMS.forEach(function(a){ ASEL[a]=true; });
+  var TP={N:true,R:true,I:true};
+  var BUSCA='';
+  var LIDO=new Date();
+
+  app.innerHTML='<div class="card">'
+   +'<div class="hd"><div class="t1">Exportar</div><div class="t2">Seguros · detalhe por proposta</div>'
+   +'<div class="t3">Base lida agora ('+('0'+LIDO.getHours()).slice(-2)+':'+('0'+LIDO.getMinutes()).slice(-2)+') · propostas de '+df(MIN)+' a '+df(MAX)+(GER?' · aberto do painel em '+GER:'')+'</div></div>'
+   +'<div class="sec"><div class="lb">Período</div><div class="row">De <input type="date" id="ini"> até <input type="date" id="fim">'
+   +'<span style="flex:1"></span>'
+   +'<button class="chip" data-at="m">Mês atual</button><button class="chip" data-at="p">Mês anterior</button>'
+   +'<button class="chip" data-at="3">Últimos 3 meses</button><button class="chip" data-at="a">Ano atual</button><button class="chip" data-at="t">Tudo</button></div></div>'
+   +'<div class="sec"><div class="lb"><span>Unidades</span><span><button class="lk" id="todas">Marcar todas</button> · <button class="lk" id="nenhuma">Limpar</button></span></div>'
+   +'<input type="text" id="busca" placeholder="Buscar unidade" style="width:220px"><div class="ufs" id="ufs"></div></div>'
+   +'<div class="sec"><div class="lb">Tipo de proposta</div><div class="opt">'
+   +'<label><input type="checkbox" data-tp="N" checked> Nova proposta</label>'
+   +'<label><input type="checkbox" data-tp="R" checked> Renovação</label>'
+   +'<label><input type="checkbox" data-tp="I" checked> Informativa</label></div></div>'
+   +'<div class="sec"><div class="lb"><span>Seguradora</span><span><button class="lk" id="atodas">Todas</button> · <button class="lk" id="anenhuma">Nenhuma</button></span></div><div class="chips" id="adms"></div></div>'
+   +'<div class="sec" style="border-bottom:none"><div class="lb">Resumo da exportação</div><div class="res" id="res"></div>'
+   +'<div class="pv" id="pv"></div><div class="pvn" id="pvn"></div></div>'
+   +'<div class="act"><button class="btn s" id="csv">Baixar CSV</button><button class="btn p" id="xlsx">Baixar Excel</button></div>'
+   +'<div class="ft">Dados lidos direto da base no momento da abertura. O arquivo é gerado no seu navegador.</div>'
+   +'</div>';
+
+  $('ini').min=iso(MIN); $('ini').max=iso(MAX); $('fim').min=iso(MIN); $('fim').max=iso(MAX);
+  $('ini').value=iso(ini); $('fim').value=iso(fim);
+
+  function per(){
+    var a=deIso($('ini').value)||MIN, z=deIso($('fim').value)||MAX;
+    return a<=z?[a,z]:[z,a];
+  }
+
+  function visiveis(uf){
+    var b=BUSCA.toUpperCase();
+    return UNS.filter(function(i){ var u=UN[i]; return u.uf===uf && (!b||u.ab.toUpperCase().indexOf(b)>=0||u.mz.toUpperCase().indexOf(b)>=0); });
+  }
+  function ufsRender(){
+    var h='';
+    UFS.forEach(function(uf){
+      var idx=visiveis(uf); if(!idx.length) return;
+      var ns=idx.filter(function(i){ return SEL[i]; }).length;
+      h+='<div class="uf"><label class="ufh"><input type="checkbox" data-uf="'+uf+'"'+(ns===idx.length?' checked':'')+'> '+uf+'<span class="n">'+ns+'/'+idx.length+'</span></label>';
+      idx.forEach(function(i){
+        var u=UN[i];
+        h+='<label class="un"><input type="checkbox" data-i="'+i+'"'+(SEL[i]?' checked':'')+'> '+u.ab+(u.mz&&u.mz!==u.ab?'<small>'+u.mz+'</small>':'')+'</label>';
+      });
+      h+='</div>';
+    });
+    $('ufs').innerHTML=h||'<div class="t3">Nenhuma unidade encontrada</div>';
+    [].forEach.call(document.querySelectorAll('[data-uf]'),function(c){
+      var idx=visiveis(c.getAttribute('data-uf')), ns=idx.filter(function(i){ return SEL[i]; }).length;
+      c.indeterminate=ns>0&&ns<idx.length;
+    });
+  }
+  function admRender(){
+    $('adms').innerHTML=ADMS.map(function(a,i){
+      return '<button class="chip'+(ASEL[a]?' on':'')+'" data-a="'+i+'">'+(a||'(sem seguradora)')+'</button>';
+    }).join('');
+  }
+
+  function filtradas(){
+    var p=per();
+    return L.filter(function(r){ return r.dt>=p[0] && r.dt<=p[1] && SEL[r.ui] && TP[r.t] && ASEL[r.adm]; });
+  }
+
+  function resumo(){
+    var R=filtradas(), pr=0, co=0, us={};
+    R.forEach(function(r){ pr+=r.v; co+=r.c; us[r.ab]=1; });
+    $('res').innerHTML=
+      '<div class="kp"><span>Propostas</span><b>'+nf(R.length)+'</b></div>'
+     +'<div class="kp"><span>Unidades</span><b>'+Object.keys(us).length+'</b></div>'
+     +'<div class="kp"><span>Prêmio</span><b>'+rf(pr)+'</b></div>'
+     +'<div class="kp"><span>Comissão prevista</span><b>'+rf(co)+'</b></div>';
+    var h='<table><thead><tr><th>Data</th><th>Unidade</th><th>Nº proposta</th><th>Tipo</th><th>Cliente</th><th>Modelo</th><th>Seguradora</th><th>Prêmio</th></tr></thead><tbody>';
+    R.slice(0,8).forEach(function(r){
+      h+='<tr><td>'+df(r.dt)+'</td><td>'+r.ab+'</td><td>'+r.np+'</td><td>'+TIPO[r.t]+'</td><td>'+r.cli+'</td><td>'+r.mod+'</td><td>'+r.adm+'</td><td class="n">'+rf(r.v)+'</td></tr>';
+    });
+    h+='</tbody></table>';
+    $('pv').innerHTML=R.length?h:'<div class="t3" style="padding:12px">Nenhuma proposta com essa seleção.</div>';
+    $('pvn').textContent=R.length>8?'Prévia das 8 primeiras de '+nf(R.length)+' propostas.':'';
+    $('xlsx').disabled=!R.length; $('csv').disabled=!R.length;
+  }
+
+  function tabela(){
+    var R=filtradas();
+    var head=['Data','UF','Unidade','Matriz','Nº proposta','Tipo','Cliente','CPF/CNPJ','Modelo','Seguradora','Vendedor','Prêmio','Comissão prevista'];
+    var aoa=[head];
+    R.forEach(function(r){
+      aoa.push([r.dt,r.uf,r.ab,r.mz,r.np,TIPO[r.t],r.cli,r.cpf,r.mod,r.adm,r.ven,r.v,Math.round(r.c*100)/100]);
+    });
+    return {aoa:aoa,n:R.length};
+  }
+  function nomeArq(ext){ var p=per(); return 'seguros_detalhe_'+iso(p[0])+'_a_'+iso(p[1])+'.'+ext; }
+
+  function baixarXlsx(){
+    var T=tabela(); if(!T.n) return;
+    var ws=XLSX.utils.aoa_to_sheet(T.aoa,{cellDates:true});
+    var nc=T.aoa[0].length;
+    for(var r=1;r<T.aoa.length;r++){
+      var a=XLSX.utils.encode_cell({r:r,c:0}); if(ws[a]) ws[a].z='dd/mm/yyyy';
+      [nc-2,nc-1].forEach(function(c){ var ref=XLSX.utils.encode_cell({r:r,c:c}); if(ws[ref]) ws[ref].z='#,##0.00'; });
+    }
+    ws['!cols']=[{wch:11},{wch:5},{wch:9},{wch:9},{wch:13},{wch:15},{wch:34},{wch:19},{wch:26},{wch:30},{wch:26},{wch:12},{wch:17}];
+    ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:T.aoa.length-1,c:nc-1}})};
+    var p=per();
+    var info=XLSX.utils.aoa_to_sheet([
+      ['Exportação','Seguros · detalhe por proposta'],
+      ['Período',df(p[0])+' a '+df(p[1])],
+      ['Propostas',T.n],
+      ['Base lida em',df(LIDO)+' '+('0'+LIDO.getHours()).slice(-2)+':'+('0'+LIDO.getMinutes()).slice(-2)],
+      ['Comissão prevista','Nova '+(TXN*100)+'% · Renovação '+(TXR*100)+'% do prêmio']
+    ]);
+    info['!cols']=[{wch:18},{wch:48}];
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Seguros');
+    XLSX.utils.book_append_sheet(wb,info,'Info');
+    XLSX.writeFile(wb,nomeArq('xlsx'));
+  }
+
+  function baixarCsv(){
+    var T=tabela(); if(!T.n) return;
+    var nc=T.aoa[0].length;
+    var txt=T.aoa.map(function(l,ri){
+      return l.map(function(v,ci){
+        if(ri>0 && ci===0) return df(v);
+        if(ri>0 && ci>=nc-2) return (+v).toFixed(2).replace('.',',');
+        v=String(v==null?'':v);
+        return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+      }).join(';');
+    }).join('\r\n');
+    var blob=new Blob(['\ufeff'+txt],{type:'text/csv;charset=utf-8'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nomeArq('csv');
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+  }
+
+  /* ── eventos ── */
+  $('ufs').addEventListener('change',function(e){
+    var t=e.target;
+    if(t.hasAttribute('data-i')) SEL[+t.getAttribute('data-i')]=t.checked;
+    if(t.hasAttribute('data-uf')) visiveis(t.getAttribute('data-uf')).forEach(function(i){ SEL[i]=t.checked; });
+    ufsRender(); resumo();
+  });
+  $('busca').addEventListener('input',function(){ BUSCA=this.value.trim(); ufsRender(); });
+  $('todas').addEventListener('click',function(){ UNS.forEach(function(i){ SEL[i]=true; }); ufsRender(); resumo(); });
+  $('nenhuma').addEventListener('click',function(){ UNS.forEach(function(i){ SEL[i]=false; }); ufsRender(); resumo(); });
+  $('adms').addEventListener('click',function(e){
+    var b=e.target.closest('[data-a]'); if(!b) return;
+    var a=ADMS[+b.getAttribute('data-a')]; ASEL[a]=!ASEL[a]; admRender(); resumo();
+  });
+  $('atodas').addEventListener('click',function(){ ADMS.forEach(function(a){ ASEL[a]=true; }); admRender(); resumo(); });
+  $('anenhuma').addEventListener('click',function(){ ADMS.forEach(function(a){ ASEL[a]=false; }); admRender(); resumo(); });
+  [].forEach.call(document.querySelectorAll('[data-tp]'),function(c){
+    c.addEventListener('change',function(){ TP[c.getAttribute('data-tp')]=c.checked; resumo(); });
+  });
+  ['ini','fim'].forEach(function(id){ $(id).addEventListener('change',resumo); });
+  [].forEach.call(document.querySelectorAll('[data-at]'),function(b){
+    b.addEventListener('click',function(){
+      var at=b.getAttribute('data-at'), y=MAX.getFullYear(), m=MAX.getMonth(), a, z=MAX;
+      if(at==='m') a=new Date(y,m,1);
+      if(at==='p'){ a=new Date(y,m-1,1); z=new Date(y,m,0); }
+      if(at==='3') a=new Date(y,m-2,1);
+      if(at==='a') a=new Date(y,0,1);
+      if(at==='t') a=MIN;
+      if(a<MIN) a=MIN;
+      $('ini').value=iso(a); $('fim').value=iso(z); resumo();
+    });
+  });
+  $('xlsx').addEventListener('click',baixarXlsx);
+  $('csv').addEventListener('click',baixarCsv);
+
+  ufsRender(); admRender(); resumo();
+}
 })();
 </script>
 </body>
