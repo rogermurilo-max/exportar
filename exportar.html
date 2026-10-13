@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Exportar · Seguros</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--txt:#1E293B;--mut:#8A8F9E;--lin:#EDEFF4;--linh:#DDE2EC;--azul:#003660;--azul2:#004E81;--bg:#F4F6F9;--sel:#EFF6FF}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+body{background:var(--bg);color:var(--txt);padding:28px 16px}
+.card{max-width:900px;margin:0 auto;background:#fff;border:1px solid var(--lin);border-radius:14px;padding:22px 24px}
+.hd{padding-bottom:14px;border-bottom:1px solid var(--lin)}
+.t1{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--azul)}
+.t2{font-size:18px;font-weight:700;margin-top:4px}
+.t3{font-size:11.5px;color:var(--mut);margin-top:3px}
+.sec{padding:16px 0;border-bottom:1px solid var(--lin)}
+.lb{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--mut);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12.5px}
+select,input[type=text]{font:inherit;font-size:12.5px;border:1px solid var(--linh);border-radius:8px;padding:7px 10px;background:#fff;color:var(--txt);outline:none}
+select:focus,input[type=text]:focus{border-color:var(--azul)}
+.chip{font:inherit;font-size:11px;font-weight:600;color:var(--mut);border:1px solid var(--linh);background:#fff;border-radius:99px;padding:5px 11px;cursor:pointer}
+.chip:hover{color:var(--azul);border-color:var(--azul);background:var(--sel)}
+.lk{font:inherit;font-size:11px;font-weight:600;color:var(--azul2);cursor:pointer;background:none;border:none;text-transform:none;letter-spacing:0}
+.ufs{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:10px;max-height:320px;overflow:auto;padding-right:4px}
+.uf{border:1px solid var(--lin);border-radius:10px;padding:8px 10px}
+.ufh{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--azul);padding-bottom:6px;border-bottom:1px solid var(--lin);margin-bottom:6px;cursor:pointer}
+.ufh .n{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--mut)}
+.un{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;cursor:pointer}
+.un small{color:var(--mut);font-size:10.5px;margin-left:auto}
+input[type=checkbox],input[type=radio]{accent-color:var(--azul);width:14px;height:14px;cursor:pointer}
+.opt{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px}
+.opt label{display:flex;align-items:center;gap:7px;cursor:pointer}
+.sep{width:1px;height:18px;background:var(--lin)}
+.res{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kp{background:var(--bg);border-radius:10px;padding:10px 12px}
+.kp span{font-size:10px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+.kp b{display:block;font-size:17px;font-weight:700;margin-top:3px}
+.kp i{font-style:normal;font-size:11px;font-weight:600;color:var(--azul2);margin-left:4px}
+.act{display:flex;justify-content:flex-end;gap:10px;padding-top:16px}
+.btn{font:inherit;font-size:13px;font-weight:600;border-radius:9px;padding:10px 18px;cursor:pointer;border:1px solid var(--azul)}
+.btn.p{background:var(--azul);color:#fff}
+.btn.p:hover{background:var(--azul2)}
+.btn.s{background:#fff;color:var(--azul)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.err{max-width:900px;margin:60px auto;text-align:center;color:var(--mut);font-size:13px;line-height:1.6}
+.ft{font-size:10.5px;color:var(--mut);padding-top:12px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function(){
+var app=document.getElementById('app');
+function erro(m){ app.innerHTML='<div class="err">'+m+'</div>'; }
+
+/* ── leitura do link ── */
+var raw=location.hash.slice(1);
+try{ raw=decodeURIComponent(raw); }catch(e){}
+var P=raw.split('~');
+if(P[0]!=='seg1'||P.length<8){ erro('Abra esta página pelo botão <b>Exportar</b> do painel de Seguros no Power BI.'); return; }
+
+var Y=+P[1].slice(0,4), M0=+P[1].slice(4,6)-1, N=+P[2];
+var NOM=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+var MES=[];
+for(var i=0;i<N;i++){
+  var d=new Date(Y,M0+i,1);
+  MES.push({ k:d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2), l:NOM[d.getMonth()]+'/'+String(d.getFullYear()).slice(2), y:d.getFullYear() });
+}
+var UN=(P[3]?P[3].split(','):[]).map(function(s){ var a=s.split('.'); return {uf:a[0]||'',ab:a[1]||'',mz:a[2]||''}; });
+var DD=(P[4]?P[4].split(','):[]).map(function(b){
+  return b.split('_').map(function(sr){ var v=sr.split('.'), o=[]; for(var k=0;k<N;k++) o.push(v[k]?+v[k]:0); return o; });
+});
+if(!UN.length){ erro('Nenhum dado disponível para exportar no seu acesso.'); return; }
+
+var INI=Math.min(+P[5]||0,+P[6]||0), FIM=Math.max(+P[5]||0,+P[6]||0);
+var pre=(P[7]&&P[7]!=='*')?P[7].split('.'):null;
+var SEL={}; UN.forEach(function(u,i){ SEL[i]=pre?pre.indexOf(u.ab)>=0:true; });
+var G=P[8]||'';
+var GER=G.length>=12?G.slice(6,8)+'/'+G.slice(4,6)+'/'+G.slice(0,4)+' '+G.slice(8,10)+':'+G.slice(10,12):'';
+var UFS=[]; UN.forEach(function(u){ if(UFS.indexOf(u.uf)<0) UFS.push(u.uf); });
+var BUSCA='';
+
+function nf(v){ return Math.round(v).toLocaleString('pt-BR'); }
+function pf(v){ return (v*100).toFixed(1).replace('.',',')+'%'; }
+function $(id){ return document.getElementById(id); }
+
+/* ── tela ── */
+var ops=MES.map(function(m,i){ return '<option value="'+i+'">'+m.l+'</option>'; }).join('');
+app.innerHTML='<div class="card">'
+ +'<div class="hd"><div class="t1">Exportar</div><div class="t2">Seguros · nova proposta e renovação</div>'
+ +'<div class="t3">Dados do painel'+(GER?' · gerado em '+GER:'')+'</div></div>'
+ +'<div class="sec"><div class="lb">Período</div><div class="row">De <select id="ini">'+ops+'</select> até <select id="fim">'+ops+'</select>'
+ +'<span style="flex:1"></span>'
+ +'<button class="chip" data-at="m">Mês atual</button><button class="chip" data-at="3">Últimos 3 meses</button>'
+ +'<button class="chip" data-at="a">Ano atual</button><button class="chip" data-at="12">12 meses</button></div></div>'
+ +'<div class="sec"><div class="lb"><span>Unidades</span><span><button class="lk" id="todas">Marcar todas</button> · <button class="lk" id="nenhuma">Limpar</button></span></div>'
+ +'<input type="text" id="busca" placeholder="Buscar unidade" style="width:220px"><div class="ufs" id="ufs"></div></div>'
+ +'<div class="sec"><div class="lb">Conteúdo</div><div class="opt">'
+ +'<label><input type="checkbox" id="o_nova" checked> Nova proposta</label>'
+ +'<label><input type="checkbox" id="o_ren" checked> Renovação</label><span class="sep"></span>'
+ +'<label><input type="radio" name="det" value="tot" checked> Total do período</label>'
+ +'<label><input type="radio" name="det" value="mes"> Mês a mês</label><span class="sep"></span>'
+ +'<label><input type="checkbox" id="o_sub" checked> Subtotal por UF</label>'
+ +'</div></div>'
+ +'<div class="sec" style="border-bottom:none"><div class="lb">Resumo da exportação</div><div class="res" id="res"></div></div>'
+ +'<div class="act"><button class="btn s" id="csv">Baixar CSV</button><button class="btn p" id="xlsx">Baixar Excel</button></div>'
+ +'<div class="ft">Os dados vêm do Power BI pelo link e o arquivo é gerado no seu navegador; nada é enviado para servidor.</div>'
+ +'</div>';
+
+$('ini').value=INI; $('fim').value=FIM;
+
+function per(){ var a=+$('ini').value, z=+$('fim').value; return a<=z?[a,z]:[z,a]; }
+function opt(){
+  var det=document.querySelector('input[name=det]:checked').value;
+  return { nova:$('o_nova').checked, ren:$('o_ren').checked, det:det, sub:$('o_sub').checked && det==='tot' };
+}
+
+/* ── unidades ── */
+function visiveis(uf){
+  var b=BUSCA.toUpperCase(), r=[];
+  UN.forEach(function(u,i){ if(u.uf===uf && (!b||u.ab.toUpperCase().indexOf(b)>=0||u.mz.toUpperCase().indexOf(b)>=0)) r.push(i); });
+  return r;
+}
+function ufsRender(){
+  var h='';
+  UFS.forEach(function(uf){
+    var idx=visiveis(uf); if(!idx.length) return;
+    var ns=idx.filter(function(i){ return SEL[i]; }).length;
+    h+='<div class="uf"><label class="ufh"><input type="checkbox" data-uf="'+uf+'"'+(ns===idx.length?' checked':'')+'> '+uf+'<span class="n">'+ns+'/'+idx.length+'</span></label>';
+    idx.forEach(function(i){
+      var u=UN[i];
+      h+='<label class="un"><input type="checkbox" data-i="'+i+'"'+(SEL[i]?' checked':'')+'> '+u.ab+(u.mz&&u.mz!==u.ab?'<small>'+u.mz+'</small>':'')+'</label>';
+    });
+    h+='</div>';
+  });
+  $('ufs').innerHTML=h||'<div class="t3">Nenhuma unidade encontrada</div>';
+  [].forEach.call(document.querySelectorAll('[data-uf]'),function(c){
+    var idx=visiveis(c.getAttribute('data-uf')), ns=idx.filter(function(i){ return SEL[i]; }).length;
+    c.indeterminate=ns>0&&ns<idx.length;
+  });
+}
+
+/* ── linhas exportadas ── */
+function linhas(){
+  var p=per(), o=opt(), out=[];
+  UN.forEach(function(u,i){
+    if(!SEL[i]) return;
+    var d=DD[i]||[[],[],[]];
+    if(o.det==='mes'){
+      for(var k=p[0];k<=p[1];k++){
+        var m=d[0][k]||0, s=d[1][k]||0, r=d[2][k]||0;
+        if(m||s||r) out.push({uf:u.uf,ab:u.ab,mz:u.mz,mes:MES[k].l,m:m,s:s,r:r});
+      }
+    } else {
+      var m=0,s=0,r=0;
+      for(var k=p[0];k<=p[1];k++){ m+=d[0][k]||0; s+=d[1][k]||0; r+=d[2][k]||0; }
+      if(m||s||r) out.push({uf:u.uf,ab:u.ab,mz:u.mz,mes:'',m:m,s:s,r:r});
+    }
+  });
+  return {rows:out,a:p[0],z:p[1],o:o};
+}
+
+function tabela(){
+  var L=linhas(), o=L.o, det=o.det==='mes';
+  var head=['UF','Unidade','Matriz']; if(det) head.push('Mês');
+  head.push('Motos');
+  if(o.nova) head.push('Seguros (nova)','% Seguro');
+  if(o.ren)  head.push('Renovações','% Renovação');
+  var pct=[]; head.forEach(function(h,i){ if(h.charAt(0)==='%') pct.push(i); });
+  function lin(uf,ab,mz,mes,m,s,r){
+    var l=[uf,ab,mz]; if(det) l.push(mes); l.push(m);
+    if(o.nova) l.push(s, m?s/m:'');
+    if(o.ren)  l.push(r, m?r/m:'');
+    return l;
+  }
+  var aoa=[head], tot={m:0,s:0,r:0}, sub=null, ufA=null;
+  L.rows.forEach(function(x){
+    if(o.sub && ufA!==null && x.uf!==ufA){ aoa.push(lin(ufA,'Subtotal '+ufA,'','',sub.m,sub.s,sub.r)); sub=null; }
+    if(!sub) sub={m:0,s:0,r:0};
+    ufA=x.uf;
+    aoa.push(lin(x.uf,x.ab,x.mz,x.mes,x.m,x.s,x.r));
+    sub.m+=x.m; sub.s+=x.s; sub.r+=x.r; tot.m+=x.m; tot.s+=x.s; tot.r+=x.r;
+  });
+  if(o.sub && ufA!==null) aoa.push(lin(ufA,'Subtotal '+ufA,'','',sub.m,sub.s,sub.r));
+  aoa.push(lin('Total geral','','','',tot.m,tot.s,tot.r));
+  return {aoa:aoa,pct:pct,a:L.a,z:L.z,n:L.rows.length,tot:tot,o:o};
+}
+
+/* ── resumo ── */
+function resumo(){
+  var T=tabela(), nU=UN.filter(function(u,i){ return SEL[i]; }).length;
+  $('res').innerHTML=
+    '<div class="kp"><span>Unidades</span><b>'+nU+'</b></div>'
+   +'<div class="kp"><span>Motos</span><b>'+nf(T.tot.m)+'</b></div>'
+   +'<div class="kp"><span>Seguros novos</span><b>'+nf(T.tot.s)+(T.tot.m?'<i>'+pf(T.tot.s/T.tot.m)+'</i>':'')+'</b></div>'
+   +'<div class="kp"><span>Renovações</span><b>'+nf(T.tot.r)+(T.tot.m?'<i>'+pf(T.tot.r/T.tot.m)+'</i>':'')+'</b></div>';
+  var ok=T.n>0 && (T.o.nova||T.o.ren);
+  $('xlsx').disabled=!ok; $('csv').disabled=!ok;
+}
+
+/* ── downloads ── */
+function nomeArq(T,ext){ return 'seguros_'+MES[T.a].k+'_a_'+MES[T.z].k+(T.o.det==='mes'?'_mensal':'')+'.'+ext; }
+
+function baixarXlsx(){
+  var T=tabela(); if(!T.n) return;
+  var topo=[['Seguros · '+MES[T.a].l+' a '+MES[T.z].l],[GER?'Gerado em '+GER:''],[]];
+  var ws=XLSX.utils.aoa_to_sheet(topo.concat(T.aoa)), off=topo.length;
+  for(var r=1;r<T.aoa.length;r++){
+    T.pct.forEach(function(c){
+      var ref=XLSX.utils.encode_cell({r:r+off,c:c});
+      if(ws[ref]&&typeof ws[ref].v==='number') ws[ref].z='0.0%';
+    });
+  }
+  ws['!cols']=T.aoa[0].map(function(h,i){ return {wch: i===1?20:Math.max(10,h.length+2)}; });
+  ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:off,c:0},e:{r:off+T.aoa.length-1,c:T.aoa[0].length-1}})};
+  var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Seguros');
+  XLSX.writeFile(wb,nomeArq(T,'xlsx'));
+}
+
+function baixarCsv(){
+  var T=tabela(); if(!T.n) return;
+  var txt=T.aoa.map(function(l,ri){
+    return l.map(function(v,ci){
+      if(ri>0 && T.pct.indexOf(ci)>=0 && typeof v==='number') return (v*100).toFixed(1).replace('.',',')+'%';
+      if(typeof v==='string' && /[;"\n]/.test(v)) return '"'+v.replace(/"/g,'""')+'"';
+      return v;
+    }).join(';');
+  }).join('\r\n');
+  var blob=new Blob(['\ufeff'+txt],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nomeArq(T,'csv');
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+}
+
+/* ── eventos ── */
+$('ufs').addEventListener('change',function(e){
+  var t=e.target;
+  if(t.hasAttribute('data-i')) SEL[+t.getAttribute('data-i')]=t.checked;
+  if(t.hasAttribute('data-uf')) visiveis(t.getAttribute('data-uf')).forEach(function(i){ SEL[i]=t.checked; });
+  ufsRender(); resumo();
+});
+$('busca').addEventListener('input',function(){ BUSCA=this.value.trim(); ufsRender(); });
+$('todas').addEventListener('click',function(){ UN.forEach(function(u,i){ SEL[i]=true; }); ufsRender(); resumo(); });
+$('nenhuma').addEventListener('click',function(){ UN.forEach(function(u,i){ SEL[i]=false; }); ufsRender(); resumo(); });
+['ini','fim','o_nova','o_ren','o_sub'].forEach(function(id){ $(id).addEventListener('change',resumo); });
+[].forEach.call(document.querySelectorAll('input[name=det]'),function(r){ r.addEventListener('change',resumo); });
+[].forEach.call(document.querySelectorAll('[data-at]'),function(b){
+  b.addEventListener('click',function(){
+    var at=b.getAttribute('data-at'), z=N-1, a=z;
+    if(at==='3') a=z-2;
+    if(at==='12') a=z-11;
+    if(at==='a'){ a=z; while(a>0 && MES[a-1].y===MES[z].y) a--; }
+    $('ini').value=Math.max(0,a); $('fim').value=z; resumo();
+  });
+});
+$('xlsx').addEventListener('click',baixarXlsx);
+$('csv').addEventListener('click',baixarCsv);
+
+ufsRender(); resumo();
+})();
+</script>
+</body>
+</html>
